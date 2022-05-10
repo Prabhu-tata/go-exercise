@@ -34,6 +34,11 @@ type Token struct {
 	Email       string `json:"Email"`
 	TokenString string `json:"token"`
 }
+type ChangePassword struct {
+	Email            string `json: "Email"`
+	Password         string `json: "Password"`
+	Confirm_Password string `json: "Confirm_Password"`
+}
 
 func main() {
 	database_connection()
@@ -151,15 +156,59 @@ func signin(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(token)
 }
 
-// func change_password(w http.ResponseWriter, r *http.Request) {
-// 	myToken := r.Header.Get("token")
-// 	token, err := jwt.Parse(myToken, func(token *jwt.Token) (interface{}, error) {
-// 		if err != nil {
-// 			panic(err)
-// 		}
-// 		fmt.Println(token)
-// 	})
-// }
+func change_password(w http.ResponseWriter, r *http.Request) {
+	var changepassword ChangePassword
+	user_id := mux.Vars(r)["id"]
+	err = json.NewDecoder(r.Body).Decode(&changepassword)
+
+	var authuser User
+	DB.Where("email = ?", changepassword.Email).First(&authuser)
+	fmt.Println(authuser.Email)
+	if authuser.Email == "" {
+		w.Header().Set("Content-Type", "application/json")
+		// fmt.Println()
+		w.WriteHeader(404)
+		message := map[string]string{
+			"Message": "This email is not available",
+		}
+		json.NewEncoder(w).Encode(message)
+		return
+	}
+	// json.NewDecoder(r.Body).Decode(&changepassword)
+	fmt.Println(changepassword.Password)
+	if changepassword.Password != changepassword.Confirm_Password {
+		w.Header().Set("Content-Type", "application/json")
+		// fmt.Println()
+		w.WriteHeader(404)
+		message := map[string]string{
+			"Message": "Password is mismatch",
+		}
+		json.NewEncoder(w).Encode(message)
+		return
+	}
+	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(changepassword.Password), 8)
+	DB.Model(&User{}).Where("ID = ?", user_id).Update("Password", string(hashedPassword))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(authuser)
+}
+
+func Validate_token(w http.ResponseWriter, r *http.Request) {
+	myToken := r.Header.Get("token")
+	token, _ := jwt.Parse(myToken, func(token *jwt.Token) (interface{}, error) {
+		//Make sure that the token method conform to "SigningMethodHMAC"
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return token, nil
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	json.NewEncoder(w).Encode(token)
+
+}
 func router_path() {
 	r := mux.NewRouter()
 
@@ -167,6 +216,8 @@ func router_path() {
 	r.HandleFunc("/signin", signin).Methods("POST")
 	r.HandleFunc("/user", get_users).Methods("GET")
 	r.HandleFunc("/user/{id}", get_userbyID).Methods("GET")
+	r.HandleFunc("/reset/{id}", change_password).Methods("PUT")
+	r.HandleFunc("/tokenvalidation", Validate_token).Methods("GET")
 	log.Fatal(http.ListenAndServe(":7005", r))
 }
 
